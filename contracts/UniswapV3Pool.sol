@@ -55,26 +55,35 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
 
     struct Slot0 {
         // the current price
+        // 交易对当前的开根号价格 sqrp(P)
         uint160 sqrtPriceX96;
         // the current tick
+        // 当前 sqrt(P) 对应的 tick，使用getTickAtSqrtRatio计算得出
         int24 tick;
         // the most-recently updated index of the observations array
+        // 最近更新的（预言机）观测点数组序号
         uint16 observationIndex;
         // the current maximum number of observations that are being stored
+        // （预言机）观测点数组容量，最大65536，初始时为1
         uint16 observationCardinality;
         // the next maximum number of observations to store, triggered in observations.write
+        // 下一个（预言机）观测点数组容量，如果手动扩容容量，会更新这个值，初始时为1
         uint16 observationCardinalityNext;
         // the current protocol fee as a percentage of the swap fee taken on withdrawal
         // represented as an integer denominator (1/x)%
+        // 协议手续费比例，可以分别为token0和token1设置交易手续费中分给协议的比例
         uint8 feeProtocol;
         // whether the pool is locked
+        // 当前交易对合约是否非锁定状态
         bool unlocked;
     }
     /// @inheritdoc IUniswapV3PoolState
     Slot0 public override slot0;
 
+    // token0 每单位的流动性累计的总费用
     /// @inheritdoc IUniswapV3PoolState
     uint256 public override feeGrowthGlobal0X128;
+    // token1 每单位的流动性累计的总费用
     /// @inheritdoc IUniswapV3PoolState
     uint256 public override feeGrowthGlobal1X128;
 
@@ -86,6 +95,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
     /// @inheritdoc IUniswapV3PoolState
     ProtocolFees public override protocolFees;
 
+    // 所有包含现价价格区间的总流动性
     /// @inheritdoc IUniswapV3PoolState
     uint128 public override liquidity;
 
@@ -122,10 +132,15 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         maxLiquidityPerTick = Tick.tickSpacingToMaxLiquidityPerTick(_tickSpacing);
     }
 
+    // tick 有效性检查
+    // 使用 Q64.96 定点数，价格的取值范围是 [2^-128, 2^128]
     /// @dev Common checks for valid tick inputs.
     function checkTicks(int24 tickLower, int24 tickUpper) private pure {
+        // tick 上边界必须大于下边界
         require(tickLower < tickUpper, 'TLU');
+        // tick 下边界必须大于等于 -887272
         require(tickLower >= TickMath.MIN_TICK, 'TLM');
+        // tick 上边界必须小于等于 87272
         require(tickUpper <= TickMath.MAX_TICK, 'TUM');
     }
 
@@ -266,6 +281,8 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             emit IncreaseObservationCardinalityNext(observationCardinalityNextOld, observationCardinalityNextNew);
     }
 
+    // 创建完交易对后，需要调用initialize方法初始化合约，才能正常使用交易对功能。
+    // 该方法初始化slot0变量
     /// @inheritdoc IUniswapV3PoolActions
     /// @dev not locked because it initializes unlocked
     function initialize(uint160 sqrtPriceX96) external override {
@@ -325,6 +342,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         );
 
         if (params.liquidityDelta != 0) {
+            // 提供的流动性价格区间在当前价格的右侧，此时流动性完全右token0组成
             if (_slot0.tick < params.tickLower) {
                 // current tick is below the passed range; liquidity can only become in range by crossing from left to
                 // right, when we'll need _more_ token0 (it's becoming more valuable) so user must provide it
@@ -333,6 +351,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                     TickMath.getSqrtRatioAtTick(params.tickUpper),
                     params.liquidityDelta
                 );
+            // 提供的流动性价格区间包含当前的价格
             } else if (_slot0.tick < params.tickUpper) {
                 // current tick is inside the passed range
                 uint128 liquidityBefore = liquidity; // SLOAD for gas optimization
@@ -346,7 +365,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                     _slot0.observationCardinality,
                     _slot0.observationCardinalityNext
                 );
-
+                // token数量计算
                 amount0 = SqrtPriceMath.getAmount0Delta(
                     _slot0.sqrtPriceX96,
                     TickMath.getSqrtRatioAtTick(params.tickUpper),
@@ -357,8 +376,9 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                     _slot0.sqrtPriceX96,
                     params.liquidityDelta
                 );
-
+                // 更新流动性
                 liquidity = LiquidityMath.addDelta(liquidityBefore, params.liquidityDelta);
+            // 提供的流动性价格区间在当前价格的左侧，此时流动性完全右token1组成
             } else {
                 // current tick is above the passed range; liquidity can only become in range by crossing from right to
                 // left, when we'll need _more_ token1 (it's becoming more valuable) so user must provide it
@@ -452,16 +472,19 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         }
     }
 
+    // 铸造流动性
     /// @inheritdoc IUniswapV3PoolActions
     /// @dev noDelegateCall is applied indirectly via _modifyPosition
     function mint(
-        address recipient,
-        int24 tickLower,
-        int24 tickUpper,
-        uint128 amount,
-        bytes calldata data
+        address recipient,  // 流动性接收者
+        int24 tickLower,    // tick 下边界
+        int24 tickUpper,    // tick 上边界
+        uint128 amount,     // 希望流动性数量
+        bytes calldata data // 回调参数
     ) external override lock returns (uint256 amount0, uint256 amount1) {
         require(amount > 0);
+        // amount0Int，amount1Int表示：如果需要添加amount数量的流动性，
+        // 则需要分别向 pool 合约转入 token0 和 token1 的代币数量
         (, int256 amount0Int, int256 amount1Int) =
             _modifyPosition(
                 ModifyPositionParams({
@@ -475,11 +498,16 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         amount0 = uint256(amount0Int);
         amount1 = uint256(amount1Int);
 
+        // 记录下现在的token余额
         uint256 balance0Before;
         uint256 balance1Before;
         if (amount0 > 0) balance0Before = balance0();
         if (amount1 > 0) balance1Before = balance1();
+        // 调用方需要在 uniswapV3MintCallback 完成代币转入操作
+        // 调用 mint 方法的合约需要实现 IUniswapV3MintCallback 接口
+        // UniswapV3在periphery合约的NonfungiblePositionManager.sol实现该接口
         IUniswapV3MintCallback(msg.sender).uniswapV3MintCallback(amount0, amount1, data);
+        // 再次检查余额
         if (amount0 > 0) require(balance0Before.add(amount0) <= balance0(), 'M0');
         if (amount1 > 0) require(balance1Before.add(amount1) <= balance1(), 'M1');
 
@@ -597,7 +625,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         address recipient,
         bool zeroForOne,
         int256 amountSpecified,
-        uint160 sqrtPriceLimitX96,
+        uint160 sqrtPriceLimitX96,  // 限价；滑点保护价格
         bytes calldata data
     ) external override noDelegateCall returns (int256 amount0, int256 amount1) {
         require(amountSpecified != 0, 'AS');
@@ -638,6 +666,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             });
 
         // continue swapping as long as we haven't used the entire input/output and haven't reached the price limit
+        // 当滑点达到最大限度的时候并不会使交易失败，而仅仅是交易部分成交
         while (state.amountSpecifiedRemaining != 0 && state.sqrtPriceX96 != sqrtPriceLimitX96) {
             StepComputations memory step;
 
@@ -662,6 +691,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             // compute values to swap to the target tick, price limit, or point where input/output amount is exhausted
             (state.sqrtPriceX96, step.amountIn, step.amountOut, step.feeAmount) = SwapMath.computeSwapStep(
                 state.sqrtPriceX96,
+                // 确保 computeSwapStep 不会计算出一个超过滑点的交易数量——这保证了现价永远不会越过限制价格
                 (zeroForOne ? step.sqrtPriceNextX96 < sqrtPriceLimitX96 : step.sqrtPriceNextX96 > sqrtPriceLimitX96)
                     ? sqrtPriceLimitX96
                     : step.sqrtPriceNextX96,
@@ -689,7 +719,10 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
             if (state.liquidity > 0)
                 state.feeGrowthGlobalX128 += FullMath.mulDiv(step.feeAmount, FixedPoint128.Q128, state.liquidity);
 
-            // shift tick if we reached the next price
+            // state.sqrtPriceX96 是新的现价，即在上一个交易过后会被设置的价格
+            // step.sqrtNextX96 是下一个已初始化的 tick 对应的价格
+            // 如果它们相等，说明我们达到了这个区间的边界
+            // 此时我们需要更新L(添加或移除流动性) 并且使用这个边界 tick 作为现在的 tick，继续这笔交易
             if (state.sqrtPriceX96 == step.sqrtPriceNextX96) {
                 // if the tick is initialized, run the tick transition
                 if (step.initialized) {
@@ -706,6 +739,7 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                         );
                         cache.computedLatestObservation = true;
                     }
+                    // 当前tick区间内的流动性
                     int128 liquidityNet =
                         ticks.cross(
                             step.tickNext,
@@ -717,11 +751,16 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
                         );
                     // if we're moving leftward, we interpret liquidityNet as the opposite sign
                     // safe because liquidityNet cannot be type(int128).min
+                    // 通常来说，穿过一个 tick 是指从左到右穿过
+                    // 因此，穿过一个下界 tick 会增加流动性，穿过一个上界 tick 会减少流动性
+                    // 然而如果 zeroForOne 被设置为 true，我们会把符号反过来
+                    // 当价格下降时，上界tick 会增加流动性，下界tick 会减少流动性
                     if (zeroForOne) liquidityNet = -liquidityNet;
 
                     state.liquidity = LiquidityMath.addDelta(state.liquidity, liquidityNet);
                 }
-
+                // 如果价格是下降的(zeroForOne=true), 将 tick - 1 来进入到下一个区间
+                // 如果价格是上升时(zeroForOne=false), 根据 TickBitmap.nextInitializedTickWithinOneWord，已经走到了下一个区间了
                 state.tick = zeroForOne ? step.tickNext - 1 : step.tickNext;
             } else if (state.sqrtPriceX96 != step.sqrtPriceStartX96) {
                 // recompute unless we're on a lower tick boundary (i.e. already transitioned ticks), and haven't moved
@@ -752,10 +791,14 @@ contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
         }
 
         // update liquidity if it changed
+        // 在区间内，我们在进入/离开区间时多次更新 state.liquidity。
+        // 交易后，我们需要更新全局的 L 来反应现价可用的流动性，同时避免多次写合约状态而消耗 gas
         if (cache.liquidityStart != state.liquidity) liquidity = state.liquidity;
 
         // update fee growth global and, if necessary, protocol fees
         // overflow is acceptable, protocol has to withdraw before it hits type(uint128).max fees
+        // 更新全局费用增长，如有必要，更新协议费用
+        // 溢出是可以接受的，协议必须在达到 type(uint128).max 费用之前撤回
         if (zeroForOne) {
             feeGrowthGlobal0X128 = state.feeGrowthGlobalX128;
             if (state.protocolFee > 0) protocolFees.token0 += state.protocolFee;

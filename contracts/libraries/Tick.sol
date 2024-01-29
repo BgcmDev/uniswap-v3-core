@@ -15,9 +15,10 @@ library Tick {
 
     // info stored for each initialized individual tick
     struct Info {
-        // the total position liquidity that references this tick
+        // 跟踪一个tick拥有的绝对流动性数量。它用来跟踪一个 tick 是否还可用
         uint128 liquidityGross;
         // amount of net liquidity added (subtracted) when tick is crossed from left to right (right to left),
+        // 是一个有符号整数，用来跟踪当跨越 tick 时添加/移除的流动性数量
         int128 liquidityNet;
         // fee growth per unit of liquidity on the _other_ side of this tick (relative to the current tick)
         // only has relative meaning, not absolute — the value depends on when the tick is initialized
@@ -48,6 +49,7 @@ library Tick {
         return type(uint128).max / numTicks;
     }
 
+    // 计算两个 tick 之间费用的累计
     /// @notice Retrieves fee growth data
     /// @param self The mapping containing all tick information for initialized ticks
     /// @param tickLower The lower tick boundary of the position
@@ -94,6 +96,8 @@ library Tick {
         feeGrowthInside1X128 = feeGrowthGlobal1X128 - feeGrowthBelow1X128 - feeGrowthAbove1X128;
     }
 
+    // 更新ticks
+    // 它初始化一个流动性为0的tick
     /// @notice Updates a tick and returns true if the tick was flipped from initialized to uninitialized, or vice versa
     /// @param self The mapping containing all tick information for initialized ticks
     /// @param tick The tick that will be updated
@@ -144,6 +148,7 @@ library Tick {
         info.liquidityGross = liquidityGrossAfter;
 
         // when the lower (upper) tick is crossed left to right (right to left), liquidity must be added (removed)
+        // 当下（上）刻度线从左到右（从右到左）交叉时，必须添加（去除）流动性
         info.liquidityNet = upper
             ? int256(info.liquidityNet).sub(liquidityDelta).toInt128()
             : int256(info.liquidityNet).add(liquidityDelta).toInt128();

@@ -142,6 +142,7 @@ library SqrtPriceMath {
                 : getNextSqrtPriceFromAmount0RoundingUp(sqrtPX96, liquidity, amountOut, false);
     }
 
+    // 获取两个价格之间的 amount0 delta
     /// @notice Gets the amount0 delta between two prices
     /// @dev Calculates liquidity / sqrt(lower) - liquidity / sqrt(upper),
     /// i.e. liquidity * (sqrt(upper) - sqrt(lower)) / (sqrt(upper) * sqrt(lower))
@@ -154,15 +155,17 @@ library SqrtPriceMath {
         uint160 sqrtRatioAX96,
         uint160 sqrtRatioBX96,
         uint128 liquidity,
-        bool roundUp
+        bool roundUp                // 向上取整还是向下取整
     ) internal pure returns (uint256 amount0) {
+        // 根据公式需要使用减法，为了保证结果为正数，需要保证sqrtRatioAX96 > sqrtRatioBX96
         if (sqrtRatioAX96 > sqrtRatioBX96) (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
-
+        // 将 liquidity 转换成 Q96.64 格式的数字
         uint256 numerator1 = uint256(liquidity) << FixedPoint96.RESOLUTION;
         uint256 numerator2 = sqrtRatioBX96 - sqrtRatioAX96;
 
         require(sqrtRatioAX96 > 0);
-
+        // 根据公式：amount0 = liquidity * (sqrtRatioBX96 - sqrtRatioAX96) / (sqrtRatioAX96 * sqrtRatioBX96)
+        //                  = liquidity * (sqrtRatioBX96 - sqrtRatioAX96) / sqrtRatioAX96 / sqrtRatioBX96
         return
             roundUp
                 ? UnsafeMath.divRoundingUp(
@@ -172,6 +175,7 @@ library SqrtPriceMath {
                 : FullMath.mulDiv(numerator1, numerator2, sqrtRatioBX96) / sqrtRatioAX96;
     }
 
+    // 获取两个价格之间的 amount1 Delta
     /// @notice Gets the amount1 delta between two prices
     /// @dev Calculates liquidity * (sqrt(upper) - sqrt(lower))
     /// @param sqrtRatioAX96 A sqrt price
@@ -185,8 +189,9 @@ library SqrtPriceMath {
         uint128 liquidity,
         bool roundUp
     ) internal pure returns (uint256 amount1) {
+        // 将两个价格排序来保证减法时不会溢出
         if (sqrtRatioAX96 > sqrtRatioBX96) (sqrtRatioAX96, sqrtRatioBX96) = (sqrtRatioBX96, sqrtRatioAX96);
-
+        // 根据公式：amount1 = liquidity * (sqrtRatioBX96 - sqrtRatioAX96)
         return
             roundUp
                 ? FullMath.mulDivRoundingUp(liquidity, sqrtRatioBX96 - sqrtRatioAX96, FixedPoint96.Q96)
