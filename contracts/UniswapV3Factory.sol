@@ -31,6 +31,7 @@ contract UniswapV3Factory is IUniswapV3Factory, UniswapV3PoolDeployer, NoDelegat
         emit FeeAmountEnabled(10000, 200);
     }
 
+    // 创建交易对池子
     /// @inheritdoc IUniswapV3Factory
     function createPool(
         address tokenA,

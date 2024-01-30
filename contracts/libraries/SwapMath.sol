@@ -79,12 +79,13 @@ library SwapMath {
                     zeroForOne
                 );
         }
-        // 如果目标价格等于下一个价格
+        // 判断是否能够到达目标价
         bool max = sqrtRatioTargetX96 == sqrtRatioNextX96;
 
         // get the input/output amounts
         // 获取输入或输出的 token 数量
         if (zeroForOne) {
+            // 根据是否到达目标价格，计算 amountIn/amountOut 的值
             amountIn = max && exactIn
                 ? amountIn
                 : SqrtPriceMath.getAmount0Delta(sqrtRatioNextX96, sqrtRatioCurrentX96, liquidity, true);
@@ -118,4 +119,14 @@ library SwapMath {
             feeAmount = FullMath.mulDivRoundingUp(amountIn, feePips, 1e6 - feePips);
         }
     }
+
+    // 在进行交易输入/输出的计算时，和流动性的计算一样，也会遇到rounding的问题，处理原则：
+    // 1. 当计算 output 时，使用 RoundDown，保证 Pool 不会出现坏账
+    // 2. 当计算 input 时，使用 RoundUp，保证 pool 不会出现坏账
+    // 3. 当通过 input 计算 P‾‾√时，如果 P‾‾√会减少，那么使用 RoundUp，这样可以保证 ΔP‾‾√被 RoundDown，
+    //      在后续计算 output 时不会使 pool 出现坏账。反之 如果 P‾‾√会增大， 那么使用 RoundDown
+    // 4. 当通过 output 计算 P‾‾√时，如果 P‾‾√会减少，那么使用 RoundDown，这样可以保证 ΔP‾‾√被 RoundUp，
+    //      在后续计算 input 时不会使 pool 出现坏账。反之 如果 P‾‾√会增大， 那么使用 RoundUp
+
 }
+

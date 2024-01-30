@@ -15,10 +15,10 @@ library Tick {
 
     // info stored for each initialized individual tick
     struct Info {
-        // 跟踪一个tick拥有的绝对流动性数量。它用来跟踪一个 tick 是否还可用
+        // 记录了所有引用这个 tick 的 position 流动性的和
         uint128 liquidityGross;
-        // amount of net liquidity added (subtracted) when tick is crossed from left to right (right to left),
-        // 是一个有符号整数，用来跟踪当跨越 tick 时添加/移除的流动性数量
+        // 当价格从左至右经过此tick时整体流动性需要变化的净值。
+        // 在单个流动性中，对于 lower tick 来说，它的值为正；对于 upper tick 来说，它的值为负。
         int128 liquidityNet;
         // fee growth per unit of liquidity on the _other_ side of this tick (relative to the current tick)
         // only has relative meaning, not absolute — the value depends on when the tick is initialized
@@ -125,12 +125,15 @@ library Tick {
         uint128 maxLiquidity
     ) internal returns (bool flipped) {
         Tick.Info storage info = self[tick];
-
+        // 记录现在tick的流动性综合
         uint128 liquidityGrossBefore = info.liquidityGross;
+        // 更新后 tick 的流动性总和
         uint128 liquidityGrossAfter = LiquidityMath.addDelta(liquidityGrossBefore, liquidityDelta);
 
         require(liquidityGrossAfter <= maxLiquidity, 'LO');
 
+        // 通过 liquidityGross 在进行 position 变化前后的值
+        // 来判断 tick 是否仍被引用
         flipped = (liquidityGrossAfter == 0) != (liquidityGrossBefore == 0);
 
         if (liquidityGrossBefore == 0) {
