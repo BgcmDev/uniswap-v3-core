@@ -14,6 +14,8 @@ library Position {
         // the amount of liquidity owned by this position
         uint128 liquidity;
         // fee growth per unit of liquidity as of the last update to liquidity or fees owed
+        // 记录了此 position 内的手续费总额
+        // 这个值不需要每次都更新，它只会在 position 发生变动，或者用户提取手续费时更新
         uint256 feeGrowthInside0LastX128;
         uint256 feeGrowthInside1LastX128;
         // the fees owed to the position owner in token0/token1

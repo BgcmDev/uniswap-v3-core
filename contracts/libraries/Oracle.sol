@@ -10,13 +10,13 @@ pragma solidity >=0.5.0 <0.8.0;
 /// The most recent observation is available, independent of the length of the oracle array, by passing 0 to observe()
 library Oracle {
     struct Observation {
-        // the block timestamp of the observation
+        // 记录区块的时间戳
         uint32 blockTimestamp;
-        // the tick accumulator, i.e. tick * time elapsed since the pool was first initialized
+        // tick index 的时间加权累积值
         int56 tickCumulative;
-        // the seconds per liquidity, i.e. seconds elapsed / max(1, liquidity) since the pool was first initialized
+        // 价格所在区间的流动性的时间加权累积值
         uint160 secondsPerLiquidityCumulativeX128;
-        // whether or not the observation is initialized
+        // 是否被初始化
         bool initialized;
     }
 
@@ -33,10 +33,12 @@ library Oracle {
         int24 tick,
         uint128 liquidity
     ) private pure returns (Observation memory) {
+        // 上次 Oracle 数据与本次的时间差
         uint32 delta = blockTimestamp - last.blockTimestamp;
         return
             Observation({
                 blockTimestamp: blockTimestamp,
+                // 计算 tick index 的时间加权累积值
                 tickCumulative: last.tickCumulative + int56(tick) * delta,
                 secondsPerLiquidityCumulativeX128: last.secondsPerLiquidityCumulativeX128 +
                     ((uint160(delta) << 128) / (liquidity > 0 ? liquidity : 1)),
@@ -59,6 +61,7 @@ library Oracle {
             secondsPerLiquidityCumulativeX128: 0,
             initialized: true
         });
+        // 返回 Oracle 中的个数和最大可用个数
         return (1, 1);
     }
 
@@ -84,19 +87,21 @@ library Oracle {
         uint16 cardinality,
         uint16 cardinalityNext
     ) internal returns (uint16 indexUpdated, uint16 cardinalityUpdated) {
+        // 获取当前的 Oracle 数据
         Observation memory last = self[index];
 
-        // early return if we've already written an observation this block
+        // 同一个区块中，只会在第一笔交易中写入 Oracle 数据
         if (last.blockTimestamp == blockTimestamp) return (index, cardinality);
 
-        // if the conditions are right, we can bump the cardinality
+        // 检查是否需要使用新的数组空间
         if (cardinalityNext > cardinality && index == (cardinality - 1)) {
             cardinalityUpdated = cardinalityNext;
         } else {
             cardinalityUpdated = cardinality;
         }
-
+        // 本次写入的索引，使用余数实现 ring buffer
         indexUpdated = (index + 1) % cardinalityUpdated;
+        // 写入 Oracle 数据
         self[indexUpdated] = transform(last, blockTimestamp, tick, liquidity);
     }
 
@@ -251,24 +256,28 @@ library Oracle {
         uint128 liquidity,
         uint16 cardinality
     ) internal view returns (int56 tickCumulative, uint160 secondsPerLiquidityCumulativeX128) {
+        // secondsAgo 为 0，表示当前最新的 Oracle 数据
         if (secondsAgo == 0) {
             Observation memory last = self[index];
             if (last.blockTimestamp != time) last = transform(last, time, tick, liquidity);
             return (last.tickCumulative, last.secondsPerLiquidityCumulativeX128);
         }
 
+        // 计算出请求的时间戳
         uint32 target = time - secondsAgo;
 
+        // 计算出请求时间戳最近的两个 Oracle 数据
         (Observation memory beforeOrAt, Observation memory atOrAfter) =
             getSurroundingObservations(self, time, target, tick, index, liquidity, cardinality);
 
+        // 如果请求时间和返回的左侧时间戳吻合，那么可以直接使用
         if (target == beforeOrAt.blockTimestamp) {
             // we're at the left boundary
             return (beforeOrAt.tickCumulative, beforeOrAt.secondsPerLiquidityCumulativeX128);
-        } else if (target == atOrAfter.blockTimestamp) {
+        } else if (target == atOrAfter.blockTimestamp) {    // 如果请求时间和返回的右侧时间戳吻合，那么可以直接使用
             // we're at the right boundary
             return (atOrAfter.tickCumulative, atOrAfter.secondsPerLiquidityCumulativeX128);
-        } else {
+        } else {    // 当请请求的时间在中间时，计算根据增长率计算出请求的时间点的 Oracle 值并返回
             // we're in the middle
             uint32 observationTimeDelta = atOrAfter.blockTimestamp - beforeOrAt.blockTimestamp;
             uint32 targetDelta = target - beforeOrAt.blockTimestamp;
@@ -310,6 +319,7 @@ library Oracle {
 
         tickCumulatives = new int56[](secondsAgos.length);
         secondsPerLiquidityCumulativeX128s = new uint160[](secondsAgos.length);
+        // 遍历传入的时间参数，获取结果
         for (uint256 i = 0; i < secondsAgos.length; i++) {
             (tickCumulatives[i], secondsPerLiquidityCumulativeX128s[i]) = observeSingle(
                 self,

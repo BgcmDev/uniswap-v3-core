@@ -46,6 +46,7 @@ library SwapMath {
         bool exactIn = amountRemaining >= 0;
 
         if (exactIn) {  // 换入
+            // 在交易之前，先计算当价格移动到交易区间的边界时，所需的手续费
             // 输入代币数量扣除手续费后的值
             uint256 amountRemainingLessFee = FullMath.mulDiv(uint256(amountRemaining), 1e6 - feePips, 1e6);
             // 如果当前价格大于目标价格，
@@ -106,6 +107,7 @@ library SwapMath {
             amountOut = uint256(-amountRemaining);
         }
 
+        // 根据交易是否移动到价格边界来计算手续费的数额
         if (exactIn && sqrtRatioNextX96 != sqrtRatioTargetX96) {
             // we didn't reach the target, so take the remainder of the maximum input as fee
             // 没有达到上边界，现在的价格区间有足够的流动性来填满交易

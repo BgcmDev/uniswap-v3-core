@@ -22,6 +22,7 @@ library Tick {
         int128 liquidityNet;
         // fee growth per unit of liquidity on the _other_ side of this tick (relative to the current tick)
         // only has relative meaning, not absolute — the value depends on when the tick is initialized
+        // 记录了发生在此 tick 「外侧」的手续费总额
         uint256 feeGrowthOutside0X128;
         uint256 feeGrowthOutside1X128;
         // the cumulative tick value on the other side of the tick
@@ -49,7 +50,7 @@ library Tick {
         return type(uint128).max / numTicks;
     }
 
-    // 计算两个 tick 之间费用的累计
+    // 计算两个 tick 之间费用的累计手续费
     /// @notice Retrieves fee growth data
     /// @param self The mapping containing all tick information for initialized ticks
     /// @param tickLower The lower tick boundary of the position
@@ -136,8 +137,11 @@ library Tick {
         // 来判断 tick 是否仍被引用
         flipped = (liquidityGrossAfter == 0) != (liquidityGrossBefore == 0);
 
+        // 如果 tick 在更新之前 (liquidityGross 为0，那么表示我们本次为初始化操作
+        // 这里会初始化 tick 中的 f_o
         if (liquidityGrossBefore == 0) {
             // by convention, we assume that all growth before a tick was initialized happened _below_ the tick
+            // 如果 tick 小于 currentTick，那么outSide的手续费增长量就是全局的手续费增长量
             if (tick <= tickCurrent) {
                 info.feeGrowthOutside0X128 = feeGrowthGlobal0X128;
                 info.feeGrowthOutside1X128 = feeGrowthGlobal1X128;
